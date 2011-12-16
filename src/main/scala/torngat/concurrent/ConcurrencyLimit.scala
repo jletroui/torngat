@@ -16,16 +16,21 @@
 package torngat
 package concurrent
 
-import akka.actor.Actor
 import akka.dispatch.Future
 import akka.config.Supervision.Permanent
+import akka.actor.{ActorRef, Actor}
+
+/**
+ * Notification that is being sent to optional monitoring actor.
+ */
+case class ConcurrencyLimitStateChanged(queuedCount: Int, executingCount: Int)
 
 /**
  * Allows to throttle tasks so that a maximum of limit are running at the same time.
  * It means tasks are responsible to signal when they are done.
  * Typical usage is to limit the number of simultaneous memory intensive tasks.
  */
-class ConcurrencyLimit(val limit: Int = 1)
+class ConcurrencyLimit(val limit: Int = 1, monitoringActor: Option[ActorRef] = None)
 {
     limit.assertStrictlyPositive("limit")
 
@@ -46,6 +51,8 @@ class ConcurrencyLimit(val limit: Int = 1)
                 }
                 else
                     waitingTasks = waitingTasks :+ t
+
+                updateMonitoring()
             case TaskExecuted(task) =>
                 executingTasks = executingTasks - task
                 waitingTasks match {
@@ -54,6 +61,12 @@ class ConcurrencyLimit(val limit: Int = 1)
                         execute(t)
                     case _ => ()
                 }
+                updateMonitoring()
+        }
+
+        private def updateMonitoring()
+        {
+            monitoringActor.foreach(_ ! ConcurrencyLimitStateChanged(waitingTasks.size, executingTasks.size))
         }
 
         private def execute(task : CompletableTask)

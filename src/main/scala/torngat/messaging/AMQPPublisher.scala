@@ -21,7 +21,10 @@ import akka.actor.{ActorRef, Actor}
 import akka.amqp.{AMQP}
 import utils.Logging
 
-case class MessagePublished(msg: akka.amqp.Message)
+/**
+ * Notification that is being sent to optional monitoring actor.
+ */
+case class PublisherPublishedMessage(msg: akka.amqp.Message)
 
 /**
  * Published messages to an AMQP exchange
@@ -32,7 +35,7 @@ class AMQPPublisher(serializer: Serializer,
                     mandatory: Boolean = false,
                     immediate: Boolean = false,
                     routingKey : String = "",
-                    monitoringCallback: Option[MessagePublished => Unit] = None) extends Actor with Logging
+                    monitoringActor: Option[ActorRef] = None) extends Actor with Logging
 {
     private val amqpProducer = AMQP.newProducer(
         connection,
@@ -48,7 +51,7 @@ class AMQPPublisher(serializer: Serializer,
                 val amqpMessage = akka.amqp.Message(payload, routingKey, mandatory, immediate, Some(props))
 
                 amqpProducer ! amqpMessage
-                monitoringCallback.foreach(_(MessagePublished(amqpMessage)))
+                monitoringActor.foreach(_ ! PublisherPublishedMessage(amqpMessage))
             }
             catch {
                 case e : Exception => log error(e, "Can not publish %s", msg.toString)

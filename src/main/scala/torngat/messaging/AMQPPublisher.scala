@@ -21,13 +21,18 @@ import akka.actor.{ActorRef, Actor}
 import akka.amqp.{AMQP}
 import utils.Logging
 
+case class MessagePublished(msg: akka.amqp.Message)
+
 /**
  * Published messages to an AMQP exchange
  */
-class AMQPPublisher(val serializer: Serializer,
-                    val connection: ActorRef,
-                    val exchange: AMQP.ExchangeParameters,
-                    val routingKey : String = "") extends Actor with Logging
+class AMQPPublisher(serializer: Serializer,
+                    connection: ActorRef,
+                    exchange: AMQP.ExchangeParameters,
+                    mandatory: Boolean = false,
+                    immediate: Boolean = false,
+                    routingKey : String = "",
+                    monitoringCallback: Option[MessagePublished => Unit] = None) extends Actor with Logging
 {
     private val amqpProducer = AMQP.newProducer(
         connection,
@@ -40,8 +45,10 @@ class AMQPPublisher(val serializer: Serializer,
 
                 val SerializedData(contentType, payload) = serializer.serialize(msg)
                 val props = new BasicProperties.Builder().contentType(contentType).build()
+                val amqpMessage = akka.amqp.Message(payload, routingKey, mandatory, immediate, Some(props))
 
-                amqpProducer ! akka.amqp.Message(payload, routingKey, true, false, Some(props))
+                amqpProducer ! amqpMessage
+                monitoringCallback.foreach(_(MessagePublished(amqpMessage)))
             }
             catch {
                 case e : Exception => log error(e, "Can not publish %s", msg.toString)
